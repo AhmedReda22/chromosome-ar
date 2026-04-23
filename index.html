@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <!-- viewport-fit=cover + maximum-scale=1 prevents unwanted zoom on iOS -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <title>Chromosome AR — Medical Demo</title>
+
+  <!-- ============================================================
+       LIBRARIES (loaded from CDN so there is nothing to install)
+       ------------------------------------------------------------
+       1. A-Frame     : declarative 3D scene framework (HTML-like)
+       2. MindAR      : image tracking engine built on top of A-Frame
+       The "aframe.prod.js" build from MindAR bundles the A-Frame
+       component that reads <a-scene mindar-image="...">.
+       ============================================================ -->
+  <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+
+  <!-- Our stylesheet for the loading UI, buttons and overlays -->
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+  <!-- ============================================================
+       LOADING UI
+       ------------------------------------------------------------
+       Shown while MindAR initializes the camera and loads the
+       tracking model. Hidden by app.js once ready.
+       ============================================================ -->
+  <div id="loading-screen">
+    <div class="dna-spinner">
+      <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+      <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+    </div>
+    <h1>Loading AR Experience</h1>
+    <p id="loading-status">Initializing camera and tracking model…</p>
+  </div>
+
+  <!-- ============================================================
+       INSTRUCTION OVERLAY
+       ------------------------------------------------------------
+       Guides the user to point their camera at the chromosome.
+       Hidden automatically once the target is detected.
+       ============================================================ -->
+  <div id="scan-instructions" class="hidden">
+    <div class="scan-frame">
+      <div class="corner tl"></div>
+      <div class="corner tr"></div>
+      <div class="corner bl"></div>
+      <div class="corner br"></div>
+    </div>
+    <p>Point your camera at the <strong>chromosome "X" model</strong></p>
+  </div>
+
+  <!-- ============================================================
+       TAP-TO-START OVERLAY (iOS requirement)
+       ------------------------------------------------------------
+       iOS Safari blocks camera AND autoplay-with-sound unless the
+       user performs a gesture first. We show a big start button
+       that arms everything on first tap.
+       ============================================================ -->
+  <div id="start-overlay">
+    <div class="start-card">
+      <h1>🧬 Chromosome AR</h1>
+      <p>Point your camera at the acrylic chromosome model to see the video.</p>
+      <button id="start-button">Start AR Experience</button>
+      <p class="hint">Please allow camera access when prompted.</p>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       ERROR MESSAGE (e.g. camera denied, http instead of https)
+       ============================================================ -->
+  <div id="error-screen" class="hidden">
+    <div class="error-card">
+      <h2>⚠️ Something went wrong</h2>
+      <p id="error-message"></p>
+      <button onclick="location.reload()">Retry</button>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       THE AR SCENE (A-Frame + MindAR)
+       ------------------------------------------------------------
+       mindar-image attributes explained:
+         imageTargetSrc : path to the compiled .mind file
+         autoStart      : false means WE call .start() after user tap
+         uiLoading      : "no" because we use our own loader
+         uiScanning     : "no" because we use our own scan hint
+         uiError        : "no" because we show our own error card
+         filterMinCF    : smoothing - lower = more stable, higher = more responsive
+         filterBeta     : smoothing - higher = faster response to movement
+         missTolerance  : frames allowed without detection before hiding
+         warmupTolerance: frames required to confirm a detection
+       ============================================================ -->
+  <a-scene
+    id="ar-scene"
+    mindar-image="
+      imageTargetSrc: assets/targets/targets.mind;
+      autoStart: false;
+      uiLoading: no;
+      uiScanning: no;
+      uiError: no;
+      filterMinCF: 0.0001;
+      filterBeta: 0.01;
+      missTolerance: 5;
+      warmupTolerance: 5;
+    "
+    color-space="sRGB"
+    renderer="colorManagement: true, physicallyCorrectLights: true"
+    vr-mode-ui="enabled: false"
+    device-orientation-permission-ui="enabled: false">
+
+    <!-- A-Frame asset preloader: the video is fetched once and reused. -->
+    <a-assets>
+      <!--
+        IMPORTANT mobile attributes:
+         - webkit-playsinline + playsinline : required for inline play on iOS
+         - muted                            : required for autoplay on all mobile browsers
+         - preload="auto"                   : start buffering immediately
+         - crossorigin="anonymous"          : needed if video is served from a CDN
+        The user can unmute later via the unmute button.
+      -->
+      <video
+        id="chromosome-video"
+        src="assets/videos/chromosome-info.mp4"
+        preload="auto"
+        loop
+        muted
+        playsinline
+        webkit-playsinline
+        crossorigin="anonymous">
+      </video>
+    </a-assets>
+
+    <!-- Camera, managed automatically by MindAR -->
+    <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+
+    <!--
+      TARGET ENTITY
+      mindar-image-target="targetIndex: 0" binds this <a-entity> to the
+      first image in the .mind file. Children are shown ONLY when that
+      image is currently detected in the camera feed.
+    -->
+    <a-entity id="target-0" mindar-image-target="targetIndex: 0">
+
+      <!--
+        VIDEO PLANE
+        Positioned at z=0.01 (slightly in front of the target) so it
+        doesn't z-fight with the detected surface.
+        width=1 height=0.75 = 4:3 aspect ratio. The plane is scaled
+        relative to the physical target's longest side, so 1 ≈ full
+        width of the chromosome model.
+        The "video-handler" custom component (see js/video-handler.js)
+        adds fade-in animation and play/pause tied to detection events.
+      -->
+      <a-video
+        id="ar-video-plane"
+        src="#chromosome-video"
+        width="1"
+        height="0.75"
+        position="0 0 0.01"
+        rotation="0 0 0"
+        opacity="0"
+        video-handler>
+      </a-video>
+
+      <!--
+        Optional subtle frame around the video for a nicer look.
+        Slightly behind the video so it peeks out like a picture frame.
+      -->
+      <a-plane
+        width="1.08"
+        height="0.83"
+        position="0 0 0"
+        color="#1a3a6e"
+        opacity="0.6">
+      </a-plane>
+
+    </a-entity>
+  </a-scene>
+
+  <!-- ============================================================
+       FLOATING CONTROLS (shown only when target is visible)
+       ============================================================ -->
+  <div id="ar-controls" class="hidden">
+    <button id="mute-toggle" title="Toggle sound">🔇</button>
+  </div>
+
+  <!-- Our application logic -->
+  <script src="js/app.js"></script>
+  <script src="js/video-handler.js"></script>
+</body>
+</html>

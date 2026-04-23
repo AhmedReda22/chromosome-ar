@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Compile Target — MindAR</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: linear-gradient(135deg, #0a1428, #1a3a6e);
+      color: #fff;
+      min-height: 100vh;
+      padding: 40px 20px;
+    }
+    .container { max-width: 640px; margin: 0 auto; }
+    h1 { font-size: 26px; margin-bottom: 10px; }
+    p { line-height: 1.6; opacity: 0.85; margin-bottom: 20px; }
+    .card {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 16px;
+      padding: 28px;
+      margin-bottom: 20px;
+      backdrop-filter: blur(10px);
+    }
+    .drop-zone {
+      border: 2px dashed rgba(255,255,255,0.3);
+      border-radius: 12px;
+      padding: 40px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .drop-zone:hover, .drop-zone.dragover {
+      border-color: #4a90e2;
+      background: rgba(74,144,226,0.1);
+    }
+    .drop-zone input { display: none; }
+    button {
+      background: linear-gradient(135deg, #4a90e2, #2c5aa0);
+      color: #fff;
+      border: none;
+      padding: 14px 30px;
+      border-radius: 50px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 16px;
+      width: 100%;
+    }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    #preview {
+      max-width: 100%;
+      max-height: 300px;
+      border-radius: 8px;
+      margin-top: 16px;
+      display: none;
+    }
+    #progress {
+      margin-top: 16px;
+      padding: 12px;
+      background: rgba(0,0,0,0.3);
+      border-radius: 8px;
+      font-family: monospace;
+      font-size: 13px;
+      white-space: pre-wrap;
+      max-height: 200px;
+      overflow-y: auto;
+      display: none;
+    }
+    ol { margin-left: 24px; margin-bottom: 16px; line-height: 1.8; }
+    code {
+      background: rgba(0,0,0,0.4);
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🧬 Compile Target Image → .mind</h1>
+    <p>This helper converts a target image into the compact tracking file MindAR needs at runtime. Everything runs locally in your browser — no upload, no server.</p>
+
+    <div class="card">
+      <h2 style="font-size:18px; margin-bottom:12px;">How to use</h2>
+      <ol>
+        <li>Click the zone below (or drag an image onto it).</li>
+        <li>Click <strong>Compile</strong> and wait ~30 seconds.</li>
+        <li>Click <strong>Download targets.mind</strong>.</li>
+        <li>Move the downloaded file to <code>assets/targets/targets.mind</code>.</li>
+      </ol>
+      <p style="font-size:13px; opacity:0.7;">For best tracking, use a sharp, high-contrast image with lots of detail (text, patterns, corners). Plain colors or blurry photos will not track.</p>
+    </div>
+
+    <div class="card">
+      <label class="drop-zone" id="drop-zone">
+        <input type="file" id="file-input" accept="image/*" />
+        <div style="font-size: 40px; margin-bottom: 12px;">📁</div>
+        <div><strong>Click to choose</strong> or drag an image here</div>
+        <div style="font-size: 12px; opacity: 0.6; margin-top: 8px;">PNG or JPG, ideally 512×512 or larger</div>
+      </label>
+      <img id="preview" alt="preview" />
+      <button id="compile-btn" disabled>Compile</button>
+      <button id="download-btn" disabled style="background: linear-gradient(135deg,#4ae28a,#2ca05a);">Download targets.mind</button>
+      <div id="progress"></div>
+    </div>
+
+    <div class="card" style="font-size: 13px; opacity: 0.75;">
+      <strong>Tip:</strong> Want to try the sample chromosome image that ships with this project? Download <code>assets/targets/chromosome-target.png</code> and drop it here.
+    </div>
+  </div>
+
+  <!-- MindAR compiler. The -image.prod.js bundle exposes window.MINDAR.IMAGE.Compiler -->
+  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image.prod.js"></script>
+
+  <script>
+    const dropZone    = document.getElementById('drop-zone');
+    const fileInput   = document.getElementById('file-input');
+    const preview     = document.getElementById('preview');
+    const compileBtn  = document.getElementById('compile-btn');
+    const downloadBtn = document.getElementById('download-btn');
+    const progress    = document.getElementById('progress');
+
+    let selectedImage = null;
+    let compiledBuffer = null;
+
+    function log(msg) {
+      progress.style.display = 'block';
+      progress.textContent += msg + '\n';
+      progress.scrollTop = progress.scrollHeight;
+    }
+
+    // Load image from a File into an <img> element for the compiler.
+    function loadImage(file) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = URL.createObjectURL(file);
+      });
+    }
+
+    function handleFile(file) {
+      if (!file || !file.type.startsWith('image/')) {
+        alert('Please choose an image file.');
+        return;
+      }
+      loadImage(file).then(img => {
+        selectedImage = img;
+        preview.src = img.src;
+        preview.style.display = 'block';
+        compileBtn.disabled = false;
+        downloadBtn.disabled = true;
+        compiledBuffer = null;
+        progress.style.display = 'none';
+        progress.textContent = '';
+      }).catch(err => alert('Could not load image: ' + err.message));
+    }
+
+    fileInput.addEventListener('change', e => handleFile(e.target.files[0]));
+    dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+    dropZone.addEventListener('drop', e => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+      handleFile(e.dataTransfer.files[0]);
+    });
+
+    compileBtn.addEventListener('click', async () => {
+      if (!selectedImage) return;
+      compileBtn.disabled = true;
+      progress.style.display = 'block';
+      progress.textContent = '';
+      log('Starting compilation…');
+
+      try {
+        const compiler = new MINDAR.IMAGE.Compiler();
+        // compileImageTargets accepts an array of HTMLImageElement
+        await compiler.compileImageTargets([selectedImage], (progressPct) => {
+          log('Progress: ' + progressPct.toFixed(1) + '%');
+        });
+        log('Exporting…');
+        const exported = await compiler.exportData();
+        compiledBuffer = exported;
+        log('Done! File size: ' + (exported.byteLength / 1024).toFixed(1) + ' KB');
+        log('Click "Download targets.mind" below.');
+        downloadBtn.disabled = false;
+      } catch (err) {
+        log('Error: ' + (err.message || err));
+        compileBtn.disabled = false;
+      }
+    });
+
+    downloadBtn.addEventListener('click', () => {
+      if (!compiledBuffer) return;
+      const blob = new Blob([compiledBuffer]);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'targets.mind';
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+  </script>
+</body>
+</html>
