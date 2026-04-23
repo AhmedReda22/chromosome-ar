@@ -99,17 +99,17 @@
   <a-scene
     id="ar-scene"
     mindar-image="
-      imageTargetSrc: assets/targets/targets.mind;
-      autoStart: false;
-      facingMode: environment;
-      uiLoading: no;
-      uiScanning: no;
-      uiError: no;
-      filterMinCF: 0.0001;
-      filterBeta: 0.01;
-      missTolerance: 5;
-      warmupTolerance: 5;
-    "
+  imageTargetSrc: assets/targets/targets.mind;
+  autoStart: false;
+  facingMode: environment;
+  uiLoading: no;
+  uiScanning: no;
+  uiError: no;
+  filterMinCF: 0.00001;
+  filterBeta: 0.001;
+  missTolerance: 20;
+  warmupTolerance: 2;
+"
     color-space="sRGB"
     renderer="colorManagement: true, physicallyCorrectLights: true"
     vr-mode-ui="enabled: false"
