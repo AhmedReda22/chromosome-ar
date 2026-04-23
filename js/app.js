@@ -82,10 +82,28 @@
     }
 
     // Boot MindAR
-    try {
+      try {
       const mindarSystem = sceneEl.systems['mindar-image-system'];
+      
+      if (!mindarSystem) {
+        throw new Error('MindAR system not found. Library may not have loaded.');
+      }
+      
+      loadingStatus.textContent = 'Requesting camera…';
+      console.log('🎬 Starting MindAR...');
+      
+      // Manually request camera FIRST so we get a clear error if it fails
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' }, // back camera on mobile
+        audio: false
+      });
+      console.log('✅ Camera stream obtained:', stream.getVideoTracks()[0].label);
+      // Stop our test stream — MindAR will open its own
+      stream.getTracks().forEach(t => t.stop());
+      
       loadingStatus.textContent = 'Loading tracking model…';
       await mindarSystem.start();
+      console.log('✅ MindAR started successfully');
       // MindAR is now running. Hide loader, show scan hint.
       loadingScreen.classList.remove('visible');
       scanHint.classList.remove('hidden');
