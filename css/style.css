@@ -285,3 +285,64 @@ html, body {
 
 /* Make sure A-Frame canvas never blocks our UI events where it shouldn't */
 .a-enter-vr, .a-enter-ar { display: none !important; }
+
+
+/* Fix: ensure MindAR's camera video is visible */
+.mindar-ui-overlay,
+.a-canvas {
+  background: transparent !important;
+}
+
+a-scene {
+  background: transparent !important;
+}
+
+video {
+  z-index: 1;
+}
+
+canvas.a-canvas {
+  z-index: 2;
+}
+
+
+
+/* ============================================================
+   FIX: ensure MindAR's camera video is visible
+   ------------------------------------------------------------
+   MindAR inserts its own <video> and <canvas> at document
+   level. We need to make sure they're visible and positioned
+   behind our HTML overlays but above the black body background.
+   ============================================================ */
+
+a-scene {
+  position: fixed !important;
+  top: 0;
+  left: 0;
+  width: 100vw !important;
+  height: 100vh !important;
+  z-index: 1 !important;
+}
+
+a-scene .a-canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* MindAR injects its camera video directly into <body> */
+body > video {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  object-fit: cover !important;
+  z-index: 0 !important;
+}
+
+/* Make sure all our overlays sit above the camera */
+#start-overlay  { z-index: 1000 !important; }
+#loading-screen { z-index: 900  !important; }
+#error-screen   { z-index: 2000 !important; }
+#scan-instructions { z-index: 500 !important; }
+#ar-controls    { z-index: 600  !important; }
