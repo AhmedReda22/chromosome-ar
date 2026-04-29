@@ -1,17 +1,20 @@
 /* ============================================================
    video-handler.js — A-Frame component
    ------------------------------------------------------------
-   Keeps track of the video position manually using a saved
-   timestamp, so that losing & re-finding the target resumes
-   from the exact moment the video was hidden.
+   Attached to the <a-video> plane inside the tracked target.
+   - Plays the video and fades it in when the chromosome is seen
+   - Pauses (without rewinding) when tracking is lost
+   - Resumes from where it stopped when the target is found again
    ============================================================ */
 
 AFRAME.registerComponent('video-handler', {
   schema: {
     fadeDuration: { type: 'number', default: 400 }
+    // restartOnShow removed — we now always resume from last position
   },
 
   init: function () {
+    // Grab the <video> element this plane is using as its source.
     const srcSelector = this.el.getAttribute('src');
     this.videoEl = document.querySelector(srcSelector);
 
@@ -20,7 +23,7 @@ AFRAME.registerComponent('video-handler', {
       return;
     }
 
-    // Walk up to find the parent target entity
+    // Find the parent mindar-image-target entity by walking up.
     let parent = this.el.parentNode;
     while (parent && !parent.getAttribute('mindar-image-target')) {
       parent = parent.parentNode;
@@ -32,19 +35,10 @@ AFRAME.registerComponent('video-handler', {
       return;
     }
 
-    // === Manual time tracking ===
-    // savedTime = the position to resume from next time we see the target
-    this.savedTime = 0;
+    // Track if we've ever seen the target before, so we know if this
+    // is a "first show" (start from 0) or a "resume" (continue from
+    // the saved position).
     this.hasPlayedBefore = false;
-
-    // Continuously update savedTime while the video plays. This way
-    // even if MindAR resets the video element, we still know exactly
-    // where we were.
-    this.videoEl.addEventListener('timeupdate', () => {
-      if (!this.videoEl.paused) {
-        this.savedTime = this.videoEl.currentTime;
-      }
-    });
 
     // Bind handlers
     this.onFound = this.onFound.bind(this);
@@ -53,7 +47,7 @@ AFRAME.registerComponent('video-handler', {
     this.targetEl.addEventListener('targetFound', this.onFound);
     this.targetEl.addEventListener('targetLost',  this.onLost);
 
-    // Start invisible
+    // Make sure video starts invisible
     this.el.setAttribute('opacity', 0);
     this.el.setAttribute('scale', '0.85 0.85 0.85');
   },
@@ -61,58 +55,38 @@ AFRAME.registerComponent('video-handler', {
   onFound: function () {
     if (!this.videoEl) return;
 
-    // First time: start at 0 and update savedTime accordingly
+    // First time only: start from 0. Every subsequent time: resume
+    // from wherever the video was paused. (Browser keeps currentTime
+    // when we pause, so we just don't reset it.)
     if (!this.hasPlayedBefore) {
-      this.savedTime = 0;
+      try { this.videoEl.currentTime = 0; } catch (e) { /* ignore */ }
       this.hasPlayedBefore = true;
-      console.log('[video-handler] First time — starting from 0');
+      console.log('[video-handler] Starting video from beginning');
     } else {
-      console.log('[video-handler] Resuming from saved position:', this.savedTime.toFixed(2) + 's');
+      console.log('[video-handler] Resuming video at', this.videoEl.currentTime.toFixed(2) + 's');
     }
 
-    // Force the video to the saved position. We try a few times
-    // because the browser sometimes ignores currentTime if the
-    // video is not ready yet.
-    const setTimeAndPlay = () => {
-      try {
-        this.videoEl.currentTime = this.savedTime;
-      } catch (e) { /* ignore */ }
-
-      const playPromise = this.videoEl.play();
-      if (playPromise && typeof playPromise.catch === 'function') {
-        playPromise.catch(err => {
-          console.warn('[video-handler] Autoplay blocked, retrying muted:', err);
-          this.videoEl.muted = true;
-          this.videoEl.play().catch(e2 => {
-            console.error('[video-handler] Muted play also failed:', e2);
-          });
+    // Play — catch promise rejection (autoplay policies)
+    const playPromise = this.videoEl.play();
+    if (playPromise && typeof playPromise.catch === 'function') {
+      playPromise.catch(err => {
+        console.warn('[video-handler] Autoplay blocked:', err);
+        this.videoEl.muted = true;
+        this.videoEl.play().catch(e2 => {
+          console.error('[video-handler] Muted play also failed:', e2);
         });
-      }
-    };
-
-    // If video is ready, set time + play immediately.
-    // If not, wait for it to be ready first.
-    if (this.videoEl.readyState >= 2) {
-      setTimeAndPlay();
-    } else {
-      this.videoEl.addEventListener('loadeddata', setTimeAndPlay, { once: true });
+      });
     }
 
-    // Double-check after a tiny delay in case the browser ignored our currentTime
-    setTimeout(() => {
-      if (Math.abs(this.videoEl.currentTime - this.savedTime) > 0.5) {
-        console.log('[video-handler] Re-correcting time to', this.savedTime.toFixed(2));
-        try { this.videoEl.currentTime = this.savedTime; } catch (e) {}
-      }
-    }, 100);
-
-    // Fade in
+    // Fade in opacity 0 -> 1
     this.el.setAttribute('animation__fade', {
       property: 'opacity',
       to: 1,
       dur: this.data.fadeDuration,
       easing: 'easeOutQuad'
     });
+
+    // Subtle scale pop
     this.el.setAttribute('animation__scale', {
       property: 'scale',
       to: '1 1 1',
@@ -123,10 +97,6 @@ AFRAME.registerComponent('video-handler', {
 
   onLost: function () {
     if (!this.videoEl) return;
-
-    // SAVE the current time BEFORE pausing
-    this.savedTime = this.videoEl.currentTime;
-    console.log('[video-handler] Target lost — saving position:', this.savedTime.toFixed(2) + 's');
 
     // Fade out
     this.el.setAttribute('animation__fade', {
@@ -142,9 +112,14 @@ AFRAME.registerComponent('video-handler', {
       easing: 'easeInQuad'
     });
 
-    // Pause after fade
+    // Pause AFTER the fade so audio doesn't cut abruptly.
+    // We just call pause() — currentTime is preserved automatically
+    // by the browser, so when we play() again it resumes from there.
     setTimeout(() => {
-      try { this.videoEl.pause(); } catch (e) { /* ignore */ }
+      try {
+        this.videoEl.pause();
+        console.log('[video-handler] Paused at', this.videoEl.currentTime.toFixed(2) + 's');
+      } catch (e) { /* ignore */ }
     }, this.data.fadeDuration * 0.5);
   },
 
