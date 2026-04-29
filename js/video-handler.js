@@ -2,24 +2,19 @@
    video-handler.js — A-Frame component
    ------------------------------------------------------------
    Attached to the <a-video> plane inside the tracked target.
-   It listens to the parent target's "targetFound" / "targetLost"
-   events and:
-     - plays the video and fades it in when the chromosome is seen
-     - pauses (and optionally rewinds) the video when tracking is lost
-     - resets the video to the beginning each time for a clean loop
+   - Plays the video and fades it in when the chromosome is seen
+   - Pauses (without rewinding) when tracking is lost
+   - Resumes from where it stopped when the target is found again
    ============================================================ */
 
 AFRAME.registerComponent('video-handler', {
   schema: {
-    // fadeDuration is exposed so you could change it from HTML if you wanted
-    fadeDuration: { type: 'number', default: 400 },
-    // whether to restart video every time target is re-found
-    restartOnShow: { type: 'boolean', default: true }
+    fadeDuration: { type: 'number', default: 400 }
+    // restartOnShow removed — we now always resume from last position
   },
 
   init: function () {
     // Grab the <video> element this plane is using as its source.
-    // The "src" attribute on <a-video> is a selector like "#chromosome-video"
     const srcSelector = this.el.getAttribute('src');
     this.videoEl = document.querySelector(srcSelector);
 
@@ -40,7 +35,12 @@ AFRAME.registerComponent('video-handler', {
       return;
     }
 
-    // Bind handlers so we can remove them on component removal
+    // Track if we've ever seen the target before, so we know if this
+    // is a "first show" (start from 0) or a "resume" (continue from
+    // the saved position).
+    this.hasPlayedBefore = false;
+
+    // Bind handlers
     this.onFound = this.onFound.bind(this);
     this.onLost  = this.onLost.bind(this);
 
@@ -49,16 +49,21 @@ AFRAME.registerComponent('video-handler', {
 
     // Make sure video starts invisible
     this.el.setAttribute('opacity', 0);
-    // A tiny scale-up animation looks nicer than a pop-in
     this.el.setAttribute('scale', '0.85 0.85 0.85');
   },
 
   onFound: function () {
     if (!this.videoEl) return;
 
-    // Restart from the beginning for a consistent first frame
-    if (this.data.restartOnShow) {
+    // First time only: start from 0. Every subsequent time: resume
+    // from wherever the video was paused. (Browser keeps currentTime
+    // when we pause, so we just don't reset it.)
+    if (!this.hasPlayedBefore) {
       try { this.videoEl.currentTime = 0; } catch (e) { /* ignore */ }
+      this.hasPlayedBefore = true;
+      console.log('[video-handler] Starting video from beginning');
+    } else {
+      console.log('[video-handler] Resuming video at', this.videoEl.currentTime.toFixed(2) + 's');
     }
 
     // Play — catch promise rejection (autoplay policies)
@@ -66,7 +71,6 @@ AFRAME.registerComponent('video-handler', {
     if (playPromise && typeof playPromise.catch === 'function') {
       playPromise.catch(err => {
         console.warn('[video-handler] Autoplay blocked:', err);
-        // As a fallback, make sure it's muted and retry once
         this.videoEl.muted = true;
         this.videoEl.play().catch(e2 => {
           console.error('[video-handler] Muted play also failed:', e2);
@@ -74,7 +78,7 @@ AFRAME.registerComponent('video-handler', {
       });
     }
 
-    // Animate opacity 0 -> 1 using A-Frame's built-in animation system
+    // Fade in opacity 0 -> 1
     this.el.setAttribute('animation__fade', {
       property: 'opacity',
       to: 1,
@@ -82,7 +86,7 @@ AFRAME.registerComponent('video-handler', {
       easing: 'easeOutQuad'
     });
 
-    // Animate scale up slightly for a subtle "pop"
+    // Subtle scale pop
     this.el.setAttribute('animation__scale', {
       property: 'scale',
       to: '1 1 1',
@@ -94,7 +98,7 @@ AFRAME.registerComponent('video-handler', {
   onLost: function () {
     if (!this.videoEl) return;
 
-    // Fade out then pause (so we don't hear audio after the image is gone)
+    // Fade out
     this.el.setAttribute('animation__fade', {
       property: 'opacity',
       to: 0,
@@ -108,14 +112,18 @@ AFRAME.registerComponent('video-handler', {
       easing: 'easeInQuad'
     });
 
-    // Pause slightly after the fade so audio doesn't cut abruptly
+    // Pause AFTER the fade so audio doesn't cut abruptly.
+    // We just call pause() — currentTime is preserved automatically
+    // by the browser, so when we play() again it resumes from there.
     setTimeout(() => {
-      try { this.videoEl.pause(); } catch (e) { /* ignore */ }
+      try {
+        this.videoEl.pause();
+        console.log('[video-handler] Paused at', this.videoEl.currentTime.toFixed(2) + 's');
+      } catch (e) { /* ignore */ }
     }, this.data.fadeDuration * 0.5);
   },
 
   remove: function () {
-    // Clean up listeners if the component is ever removed
     if (this.targetEl) {
       this.targetEl.removeEventListener('targetFound', this.onFound);
       this.targetEl.removeEventListener('targetLost',  this.onLost);
